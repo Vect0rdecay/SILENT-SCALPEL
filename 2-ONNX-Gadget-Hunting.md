@@ -283,7 +283,7 @@ In Post 3, I'll cover what happened when I started looking at weight distributio
 
 ---
 
-## Key Takeaways
+## Summary
 
 1. **100+ papers analyzed** — Extract structural patterns, not just attack algorithms.
 
