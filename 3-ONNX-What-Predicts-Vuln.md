@@ -18,7 +18,7 @@ But I still wanted to know if a gadget score of some sort could predict how robu
 
 ## Testing Different Models
 
-I pulled 12 CIFAR-10 models from [RobustBench](https://robustbench.github.io/), a standardized benchmark for adversarial robustness. The models spanned different architectures and training procedures: standard training, various forms of adversarial training, pre-training strategies, and more.
+I pulled 12 CIFAR-10 models from RobustBench, a standardized benchmark for adversarial robustness. The models spanned different architectures and training procedures: standard training, various forms of adversarial training, pre-training strategies, and more.
 
 For each model, I ran my scanner to compute a graph-based "vulnerability score," an aggregate of which gadgets were present, which chains were active, and how many attack paths the architecture exposed. I also computed several other metrics: weight statistics, gradient properties, and dynamic sensitivity (how much the model's output changed under random perturbation).
 
