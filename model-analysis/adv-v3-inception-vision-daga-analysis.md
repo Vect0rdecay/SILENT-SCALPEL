@@ -10,7 +10,7 @@ This is an analysis of an Inception-v3 vision model that has been trained with a
 
 The model metadata `.yaml` has some useful information about the input, size, ops counter, and number of parameters.
 
-![Model metadata](media/image4.png)
+![Model metadata](image4.png)
 
 ## Data Flow Overview
 
@@ -38,7 +38,7 @@ Softmax
 
 Some of the Netron and NN elements we encounter in this analysis.
 
-![Summary of elements](media/image3.png)
+![Summary of elements](image3.png)
 
 ## Input and 1st Layer
 
@@ -48,7 +48,7 @@ This is one 299×299 color image, the standard Inception-v3 input size.
 
 Netron labels it as `X`, but semantically this is the `input_image`.
 
-![Input layer](media/image7.png)
+![Input layer](image7.png)
 
 ### 1st Convolutional Layer
 
@@ -66,11 +66,11 @@ So this means: use 3×3 kernel filters, move 2 pixels at a time, and don't pad t
 
 This is an example `[3,3]` kernel filter that produces one output value per window it slides over.
 
-![Kernel filter example](media/image8.png)
+![Kernel filter example](image8.png)
 
 **Stride** = how many pixels the kernel jumps each step.
 
-![Stride visualization](media/image2.png)
+![Stride visualization](image2.png)
 
 ## Inception Block/Module
 
@@ -80,11 +80,11 @@ How to identify an inception block:
 
 1 tensor in and 3–4 parallel paths, multiple Conv stacks, then one big Concat node.
 
-![Inception block diagram](media/image10.png)
+![Inception block diagram](image10.png)
 
 This is what an inception block looks like in Netron. One tensor feeding into multiple Conv chains, one pooling chain, then a big Concat (`axis=1`). This entire subgraph is the Inception Module.
 
-![Inception block in Netron](media/image1.png)
+![Inception block in Netron](image1.png)
 
 Each Conv, ReLU, Pool, Concat modifies:
 
@@ -101,7 +101,7 @@ The section of Conv layers prior to the Inception module is called **the Stem** 
 
 For each Conv node think: **"Take these feature maps, slide these filters of this size with this stride, produce this many new feature maps."**
 
-![Model stem](media/image5.png)
+![Model stem](image5.png)
 
 ## MaxPool
 
@@ -121,11 +121,11 @@ Models use MaxPool for **downsampling** (reduce spatial resolution, saves comput
 
 ### MaxPool Node & Attributes
 
-![MaxPool node and attributes](media/image9.png)
+![MaxPool node and attributes](image9.png)
 
 Looking at this module more closely we see an attribute **ceil_mode** that controls **how the output size of the pooling layer is computed when the window does not fit perfectly at the edge of the feature map**. It only affects **shape calculation**, not the pooling values themselves.
 
-![ceil_mode illustration](media/image6.png)
+![ceil_mode illustration](image6.png)
 
 For example, when sliding a pooling window (here 3×3 with stride 2), the layer must decide: "If the window would partially hang off the edge, do we stop early or include one more step?" That decision is controlled by `ceil_mode`.
 
@@ -240,7 +240,7 @@ Each branch acts like a weak specialist model:
 
 Concatenation is similar to ensembling features. This often improves robustness against **narrow attacks**.
 
-## The Resulting Trade-Off
+## Resulting Trade-Off
 
 Structurally:
 
