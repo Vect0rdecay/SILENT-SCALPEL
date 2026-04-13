@@ -30,8 +30,7 @@ Inception blocks (many times)
 Global average pool
     ↓
 Fully connected / logits
-    ↓
-Softmax
+
 ```
 
 ## Summary of Elements
@@ -54,7 +53,7 @@ Netron labels it as `X`, but semantically this is the `input_image`.
 
 **Conv**
 
-W (32 filters, each filter is 3×3, operating on 3 input channels (RGB), moving 2 pixels at a time.) This layer extracts 32 kinds of low-level features (edges, corners, color transitions) from the image while shrinking its spatial size.
+W (32 filters, each filter is 3×3, operating on 3 input channels (RGB)). This layer extracts 32 kinds of low-level features (edges, corners, color transitions) from the image while shrinking its spatial size. The strides = 2, 2 attribute is what moves the filter 2 pixels at a time across the input.
 
 Its input was `1x3x299x299` and because stride 2 downsamples, the output will be `1,32,149,149`.
 
@@ -131,186 +130,16 @@ For example, when sliding a pooling window (here 3×3 with stride 2), the layer 
 
 ### Two Cases for ceil_mode
 
-**ceil_mode = 0** — Use floor division (default behavior). Meaning: Only include windows that fully fit inside the input. So the output size is:
+**ceil_mode = 0** — Use floor division (default behavior). Meaning: only include windows that fully fit inside the input. The output size is:
 
-```
-output = floor((input_size - kernel_size) / stride) + 1
-```
+```output = floor((input_size + 2·pad − kernel_size) / stride) + 1```
 
-This has the effect of dropping border regions that don't fit cleanly, slightly smaller output, more predictable geometry, and is the most common choice.
+This drops border regions that don't fit cleanly, yields a slightly smaller output and more predictable geometry, and is the most common choice.
 
-**ceil_mode = 1** — Use ceiling division. Meaning: Allow one extra pooling step even if the window partially exceeds the input boundary. Output size:
+**ceil_mode = 1** — Use ceiling division. Meaning: allow one extra pooling step even if the window partially exceeds the input boundary. The output size is:
 
-```
-output = ceil((input_size - kernel_size) / stride) + 1
-```
+```output = ceil((input_size + 2·pad − kernel_size) / stride) + 1```
 
-This has the effect of keeping more border information, slightly larger output, and sometimes requires implicit padding.
+This keeps more border information, yields a slightly larger output, and sometimes requires implicit padding. Note that frameworks differ slightly in how they handle the final window at the boundary (e.g., PyTorch requires the last window to start inside the input), so the exact behavior can vary. It's best to consult the ONNX MaxPool spec for the authoritative rule. TL;DR ceil_mode decides whether pooling rounds output size down or up.
 
-**TL;DR:** `ceil_mode` decides whether pooling rounds output size down (safe & common) or up (keeps partial edge windows).
 
-## Security Analysis
-
-From a security perspective, this part of the DAG (the Stem) provides only *partial* robustness. The downsampling step reduces some high-frequency noise, and the larger receptive field helps aggregate information across neighboring pixels, which can slightly weaken very fine-grained perturbations. However, the core operation is still a linear convolution, so adversarial directions in the input space are largely preserved.
-
-Using stride can even alias adversarial patterns instead of destroying them, and there is no explicit smoothing or denoising to actively remove malicious structure. In effect, the layer compresses the perturbation but does not eliminate it. The following BatchNorm and ReLU stabilize activations by normalizing their scale and clipping negative values, but they also fail to remove adversarial directions — only their magnitude or sign — so the attack signal can continue to propagate through the graph.
-
-Let's now try to connect the DAG structure of Inception modules to concrete security intuitions, followed by a conceptual example of a multi-scale attack.
-
-## Why an Inception Block is a "Multi-Path Attack Surface" in a DAG
-
-In a DAG view, an Inception block looks like this:
-
-> one input node → several parallel transformation subgraphs → a concatenation node
-
-Each branch applies a different type of feature extraction:
-
-- Small-kernel convolutions (local, fine detail)
-- Larger-kernel convolutions (coarser shapes / textures)
-- Pooling or dimensionality-reduction paths (context / invariances)
-
-These branches are **independent computation paths** that later merge.
-
-From a learning perspective, this is great: the model can represent the same object using multiple "views" of the data (edges, textures, shapes, spatial context).
-
-From a security perspective, this has two important implications.
-
-## Attacker-Side Intuition
-
-### 1. Multiple feature scales can be influenced at once
-
-Different branches respond to different spatial frequencies:
-
-- Small kernels → sensitive to pixel-level or edge-level changes
-- Large kernels → sensitive to broader patterns and shapes
-- Pooling paths → sensitive to regional averages or layout
-
-A single input perturbation can be constructed so that:
-
-- Part of it affects fine edges
-- Part of it affects medium textures
-- Part of it affects coarse structure
-
-So instead of "breaking" only one feature extractor, the perturbation nudges **several internal representations simultaneously**.
-
-In essence, one malicious signal fans out into several internal feature streams.
-
-### 2. Gradients flow through multiple independent paths
-
-During backpropagation, gradients do not pass through one bottleneck but through **several parallel routes**.
-
-This means:
-
-- The attacker gets richer gradient information
-- The optimization landscape is smoother
-- Small updates are more likely to affect the final output
-
-This tends to improve:
-
-- Attack reliability
-- Transferability
-
-### 3. The concatenation step preserves all corrupted features
-
-When the branches recombine, the model does not choose one representation — it stacks them.
-
-So if even **two out of four branches** are successfully manipulated, their corrupted features are preserved and passed downstream.
-
-## Defender-Side Intuition
-
-Despite the above, Inception is not weak by default. Weights and adversarial training with its higher kurtosis signal can both obviate any architectural benefit an attacker may gain.
-
-### 1. Feature diversity
-
-The model does not depend on:
-
-- One kernel size
-- One texture scale
-- One type of pattern
-
-This reduces *single-point failure*. An attack that only targets "edges" or only "textures" may fail.
-
-### 2. Ensemble-like behavior
-
-Each branch acts like a weak specialist model:
-
-- Branch A: edges
-- Branch B: blobs
-- Branch C: context
-
-Concatenation is similar to ensembling features. This often improves robustness against **narrow attacks**.
-
-## Resulting Trade-Off
-
-Structurally:
-
-- **Robust to single-scale attacks** (e.g., only pixel noise or only texture manipulation)
-- **Vulnerable to multi-scale, multi-branch coordinated attacks**
-
-This is why Inception models often perform well under basic adversarial testing but still fail under stronger adaptive methods.
-
-## Conceptual Example: A Multi-Scale Coordinated Attack
-
-Consider an image classifier distinguishing **cat vs dog**.
-
-An attacker constructs a perturbation with three components:
-
-### Fine scale (small kernels)
-
-Tiny, high-frequency changes around whiskers and fur edges:
-
-- Barely visible pixel-level noise
-- Shifts edge detectors in the 1×1 or 3×3 conv branches
-
-Effect: *"edges look more dog-like"*
-
-### Medium scale (mid kernels)
-
-Subtle texture changes over patches of fur:
-
-- Alters repeated patterns
-- Affects mid-receptive-field branches
-
-Effect: *"fur texture resembles dog fur statistics"*
-
-### Coarse scale (large kernels / pooling)
-
-Very low-frequency brightness or shading changes over the head region:
-
-- Slight shape bias
-- Affects large-kernel or pooling paths
-
-Effect: *"overall head structure trends toward dog"*
-
-### What happens in the Inception block
-
-| Branch | What it sees |
-|---|---|
-| Small kernel branch | altered edges |
-| Medium kernel branch | altered textures |
-| Large kernel branch | altered shape/context |
-| Pooling branch | altered regional averages |
-
-All of these corrupted features are concatenated. Downstream layers now receive a **coherent false narrative**:
-
-> edges + textures + shape all support "dog"
-
-Even though no single change is strong enough alone, together they may overwhelm the classifier.
-
-## How to Recognize This in a DAG Analysis
-
-When reviewing a model graph, look for:
-
-- Parallel convolution branches
-- Different kernel sizes
-- Concatenation nodes
-
-Then ask:
-
-- "Has this model been adversarially trained?"
-- "Do I have access to model weights for analysis?"
-- "Can a perturbation influence multiple branches at once?"
-- "Are there any explicit denoising or low-pass filters before concatenation?"
-- "Does any path dominate, or do they all contribute similarly?"
-
-If the answers are: *No / No / Yes / No / Similar* — then the architecture is potentially **multi-scale expressive but multi-scale attackable**. You have to run some initial adversarial attacks like FGSM and PGD to get a sense of how robust it is.
